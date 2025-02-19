@@ -4,6 +4,9 @@ header:
     - kas/yocto/scarthgap.yml
 distro: common-torizon
 target: ${CONFIG_TARGET}
+bblayers_conf_header:
+  oeredirect: | 
+    OEROOT := "\${@os.path.abspath(os.path.dirname(d.getVar('FILE', True)))}/../.."
 local_conf_header:
   torizon: |
     OSTREE_KERNEL_ARGS:sota:append = "console=ttySC0,115200 earlycon root=LABEL=otaroot rootfstype=ext4"
