@@ -1,8 +1,7 @@
 header:
   version: 14
-repos:
-  local_conf_header:
-    drpai: |
+local_conf_header:
+  drpai: |
     
       sdk_post_process () {
       # Modify ls.so.conf for multilib environment
@@ -17,7 +16,7 @@ repos:
       }
 
       SDK_POST_INSTALL_COMMAND_append = " ${sdk_post_process}"
-
+      
       IMAGE_INSTALL_append = " \
         libjpeg-turbo-dev \
         kernel-module-udmabuf \
@@ -33,6 +32,7 @@ repos:
         mmngr-user-module \
       "
       TOOLCHAIN_TARGET_TASK_append = " drpai "
+repos:
   rz-community-bsp:
     layers:
       meta-rz-drpai:
