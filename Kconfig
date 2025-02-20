@@ -205,6 +205,18 @@ choice
 endchoice
 endmenu
 
+config ADD_AI_SUPPORT
+bool "Enable DRP layer"
+default y
+help
+	Enable the DRP layer to provide support for the DRP-AI module
+depends on MACHINE_SMARC-RZV2L && KERNEL_RENESAS_5.10
+
+config KAS_INCLUDE_AI_SUPPORT
+string
+depends on ADD_AI_SUPPORT
+default "kas/platform/drpai.yml"
+
 menu "Linux"
 choice
 	prompt "Select the Linux kernel version to use"
