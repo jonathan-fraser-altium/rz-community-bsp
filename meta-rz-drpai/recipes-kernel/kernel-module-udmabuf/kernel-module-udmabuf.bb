@@ -12,7 +12,7 @@ DEPENDS = "linux-renesas"
 PN = "kernel-module-udmabuf"
 PV = "v3.2.4"
 
-SRC_URI = "git://github.com/ikwzm/udmabuf.git"
+SRC_URI = "git://github.com/ikwzm/udmabuf.git;protocol=https"
 SRCREV = "24a1346c1f4371ef6161699c8ccb8bf968e6bb0a"
 
 
@@ -49,6 +49,7 @@ FILES:${PN} = " \
 
 FILES:${PN}-dbg = " \
     /lib/modules/${KERNEL_VERSION}/kernel/.debug/u-dma-buf.ko \
+"
 
 #Package name aliases
 RPROVIDES_${PN} += "kernel-module-udmabuf"
