@@ -3,11 +3,7 @@ header:
 local_conf_header:
   drpai: |
       IMAGE_INSTALL:append = "\
-        libjpeg-turbo-dev \
         kernel-module-udmabuf \
-        ai-eva-sw \
-        opencv \
-        opencv-dev \
       "
       TOOLCHAIN_TARGET_TASK:append = " drpai "
 repos:
@@ -21,4 +17,8 @@ repos:
 #  kernel-module-mmngrbuf \
 #  mmngrbuf-user-module \
 #  mmngr-user-module \
+#  ai-eva-sw \
+#  opencv \
+#  opencv-dev \
+#  libjpeg-turbo-dev \
 #"
