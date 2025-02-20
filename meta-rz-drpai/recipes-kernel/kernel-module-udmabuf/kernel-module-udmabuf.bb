@@ -12,7 +12,7 @@ DEPENDS = "linux-renesas"
 PN = "kernel-module-udmabuf"
 PV = "v3.2.4"
 
-SRC_URI = "git://github.com/ikwzm/udmabuf.git;protocol=git"
+SRC_URI = "git://github.com/ikwzm/udmabuf.git"
 SRCREV = "24a1346c1f4371ef6161699c8ccb8bf968e6bb0a"
 
 

@@ -3,7 +3,7 @@
 #
 DESCRIPTION = "DRP-AI Support Package with kernel for RZ/V2L Evaluation Board Kit PMIC version"
 
-FILESEXTRAPATHS:prepend = "${THISDIR}/${PN}/:"
+FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 
 SRC_URI:append += "\
 	file://0001-ov5645-Add-VGA-720x480-and-720p-resloutions.patch \
