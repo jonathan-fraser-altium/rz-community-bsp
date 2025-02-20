@@ -3,7 +3,7 @@ header:
 local_conf_header:
   drpai: |
       IMAGE_INSTALL:append = "\
-        libjpeg-turbo-dev"
+        libjpeg-turbo-dev \
         kernel-module-mmngr \
         kernel-module-mmngrbuf \
         kernel-module-udmabuf \
