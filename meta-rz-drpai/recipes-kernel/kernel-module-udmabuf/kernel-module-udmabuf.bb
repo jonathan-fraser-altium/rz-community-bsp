@@ -35,7 +35,7 @@ do_compile() {
 do_install () {
     install -d ${D}/lib/modules/${KERNEL_VERSION}/kernel/
     install -m 644 ${S}/u-dma-buf.ko ${D}/lib/modules/${KERNEL_VERSION}/kernel/
-    delete ${D}/lib/modules/${KERNEL_VERSION}/kernel/.debug
+    rm -rf ${D}/lib/modules/${KERNEL_VERSION}/kernel/.debug
 }
 
 PACKAGES = " \
