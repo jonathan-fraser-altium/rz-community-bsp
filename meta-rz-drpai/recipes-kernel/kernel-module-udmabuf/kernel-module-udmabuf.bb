@@ -35,17 +35,20 @@ do_compile() {
 do_install () {
     install -d ${D}/lib/modules/${KERNEL_VERSION}/kernel/
     install -m 644 ${S}/u-dma-buf.ko ${D}/lib/modules/${KERNEL_VERSION}/kernel/
-    rm -rf ${D}/lib/modules/${KERNEL_VERSION}/kernel/.debug
 }
 
 PACKAGES = " \
     ${PN} \
     ${PN}-dev \
+    ${PN}-dbg \
 "
 
 FILES:${PN} = " \
     /lib/modules/${KERNEL_VERSION}/kernel/u-dma-buf.ko \
 "
+
+FILES:${PN}-dbg = " \
+    /lib/modules/${KERNEL_VERSION}/kernel/.debug/u-dma-buf.ko \
 
 #Package name aliases
 RPROVIDES_${PN} += "kernel-module-udmabuf"
