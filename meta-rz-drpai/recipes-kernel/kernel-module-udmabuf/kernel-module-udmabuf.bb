@@ -35,6 +35,7 @@ do_compile() {
 do_install () {
     install -d ${D}/lib/modules/${KERNEL_VERSION}/kernel/
     install -m 644 ${S}/u-dma-buf.ko ${D}/lib/modules/${KERNEL_VERSION}/kernel/
+    delete ${D}/lib/modules/${KERNEL_VERSION}/kernel/.debug
 }
 
 PACKAGES = " \
@@ -43,7 +44,7 @@ PACKAGES = " \
 "
 
 FILES:${PN} = " \
-    /lib/modules/${KERNEL_VERSION}/kernel/* \
+    /lib/modules/${KERNEL_VERSION}/kernel/u-dma-buf.ko \
 "
 
 #Package name aliases
