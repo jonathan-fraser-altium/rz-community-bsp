@@ -42,7 +42,7 @@ PACKAGES = " \
     ${PN}-dev \
 "
 
-FILES_${PN} = " \
+FILES:${PN} = " \
     /lib/modules/${KERNEL_VERSION}/kernel/u-dma-buf.ko \
 "
 
