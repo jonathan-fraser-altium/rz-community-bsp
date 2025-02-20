@@ -5,7 +5,7 @@ DESCRIPTION = "DRP-AI Support Package with kernel for RZ/V2L Evaluation Board Ki
 
 FILESEXTRAPATHS:prepend = "${THISDIR}/${PN}/:"
 
-SRC_URI_append += "\
+SRC_URI:append += "\
 	file://0001-ov5645-Add-VGA-720x480-and-720p-resloutions.patch \
 	file://0002-ov5645-Add-pixel-rate-support-for-each-mode.patch \
 	file://0003-rzg2l-csi-Add-BGR24-and-YUYV-support.patch \
