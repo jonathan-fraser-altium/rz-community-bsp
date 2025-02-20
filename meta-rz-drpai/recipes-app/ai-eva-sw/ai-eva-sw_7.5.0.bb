@@ -10,6 +10,7 @@ LIC_FILES_CHKSUM = "file://application_binaries/licenses/pytorch_vision/LICENSE.
 SRC_URI = " \
 	https://embedded-world-binary-dist.s3.us-west-2.amazonaws.com/ai-eva-sw_v7.5.0.tar.bz2 \
 "
+SRC_URI[sha256sum] = "6cf9c4afac241684980975e0b34f0cf9e1abce8769fda04f7d3d6967bd6cebd9"
 
 APP_INSTALL_DIRECTORY ?= "/home/root/RZV_AI_Eva_SW"
 
