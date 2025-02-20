@@ -43,7 +43,7 @@ PACKAGES = " \
 "
 
 FILES:${PN} = " \
-    /lib/modules/${KERNEL_VERSION}/kernel/u-dma-buf.ko \
+    /lib/modules/${KERNEL_VERSION}/kernel/* \
 "
 
 #Package name aliases
