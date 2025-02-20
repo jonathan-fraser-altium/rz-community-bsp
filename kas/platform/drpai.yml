@@ -4,17 +4,21 @@ local_conf_header:
   drpai: |
       IMAGE_INSTALL:append = "\
         libjpeg-turbo-dev \
-        kernel-module-mmngr \
-        kernel-module-mmngrbuf \
         kernel-module-udmabuf \
         ai-eva-sw \
         opencv \
         opencv-dev \
-        mmngrbuf-user-module \
-        mmngr-user-module \
       "
       TOOLCHAIN_TARGET_TASK:append = " drpai "
 repos:
   rz-community-bsp:
     layers:
       meta-rz-drpai:
+
+
+#IMAGE_INSTALL:append = "\
+#  kernel-module-mmngr \
+#  kernel-module-mmngrbuf \
+#  mmngrbuf-user-module \
+#  mmngr-user-module \
+#"
