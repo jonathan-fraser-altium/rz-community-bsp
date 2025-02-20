@@ -33,8 +33,8 @@ do_compile() {
 
 
 do_install () {
-    install -d ${D}/lib/modules/${KERNEL_VERSION}/kernel/
-    install -m 644 ${S}/u-dma-buf.ko ${D}/lib/modules/${KERNEL_VERSION}/kernel/
+    install -d ${D}${nonarch_base_libdir}/modules/${KERNEL_VERSION}/kernel/
+    install -m 644 ${S}/u-dma-buf.ko ${D}${nonarch_base_libdir}/modules/${KERNEL_VERSION}/kernel/
 }
 
 PACKAGES = " \
@@ -44,11 +44,11 @@ PACKAGES = " \
 "
 
 FILES:${PN} = " \
-    /lib/modules/${KERNEL_VERSION}/kernel/u-dma-buf.ko \
+    ${nonarch_base_libdir}/modules/${KERNEL_VERSION}/kernel/u-dma-buf.ko \
 "
 
 FILES:${PN}-dbg = " \
-    /lib/modules/${KERNEL_VERSION}/kernel/.debug/u-dma-buf.ko \
+    ${nonarch_base_libdir}/modules/${KERNEL_VERSION}/kernel/.debug/u-dma-buf.ko \
 "
 
 #Package name aliases
