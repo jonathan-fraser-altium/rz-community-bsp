@@ -12,7 +12,9 @@ KCONFIG_MODE ?= "alldefconfig"
 DEPENDS += "openssl-native util-linux-native"
 DEPENDS += "gmp-native libmpc-native"
 
-SRC_URI:append = "file://docker.cfg"
+SRC_URI:append = "\
+		file://docker.cfg\
+	"
 
 # RZ/G2H family needs firware for USB3
 LICENSE:append:rzg2h-family = " & r8a778x_usb3_fw_license"
