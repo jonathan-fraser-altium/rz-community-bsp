@@ -17,6 +17,7 @@ LICENSE:append:rzg2h-family = " & r8a778x_usb3_fw_license"
 SRC_URI:append:rzg2h-family = " \
 	file://r8a779x_usb3_v3.dlmem \
 	file://usb3.cfg \
+	file://docker.cfg \
 "
 
 do_configure:append:rzg2h-family () {
