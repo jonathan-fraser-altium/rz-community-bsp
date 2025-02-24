@@ -12,7 +12,7 @@ DEPENDS = "linux-renesas"
 PN = "kernel-module-udmabuf"
 PV = "v3.2.4"
 
-SRC_URI = "git://github.com/ikwzm/udmabuf.git;protocol=https"
+SRC_URI = "git://github.com/ikwzm/udmabuf.git;protocol=https;branch=master"
 SRCREV = "24a1346c1f4371ef6161699c8ccb8bf968e6bb0a"
 
 
@@ -55,4 +55,4 @@ FILES:${PN}-dbg = " \
 RPROVIDES_${PN} += "kernel-module-udmabuf"
 
 # Autoload u-dma-buf
-KERNEL_MODULE_AUTOLOAD += "u-dma-buf"
+KERNEL_MODULE_AUTOLOAD += " u-dma-buf "

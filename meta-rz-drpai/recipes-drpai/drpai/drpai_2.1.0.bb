@@ -5,7 +5,7 @@
 DESCRIPTION = "Recipe for header file of DRP-AI driver"
 SECTION = "libs"
 DEPENDS = ""
-LICENSE = "GPL-2.0-WITH-Linux-syscall-note"
+LICENSE = "GPL-2.0-only"
 LIC_FILES_CHKSUM = "file://COPYING;md5=6bc538ed5bd9a7fc9398086aedcd7e46"
 
 PACKAGE_ARCH = "${MACHINE_ARCH}"
@@ -20,7 +20,7 @@ SRC_URI = " \
     "
 
 # The list of directories or files that are placed in packages.
-FILES_${PN} = " \
+FILES:${PN} = " \
     ${includedir}/linux/drpai.h \
     "
 

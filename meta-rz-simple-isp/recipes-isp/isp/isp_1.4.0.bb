@@ -17,7 +17,7 @@ PR = "r1"
 SRC_URI = "file://renesas-v4l2-controls.h"
 
 # The list of directories or files that are placed in packages.
-FILES_${PN} = " \
+FILES:${PN} = " \
     ${includedir}/linux/renesas-v4l2-controls.h \
     "
 
