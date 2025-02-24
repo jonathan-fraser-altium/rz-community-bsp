@@ -14,5 +14,4 @@ SRC_URI:append += "\
 	file://0006-enable-u-dma-buf-function.patch \
 	file://0007-enable-drpai-drv.patch \
 	file://0008-WA-available-v4l2-memory-userptr.patch \
-	file://docker.cfg \
 "
