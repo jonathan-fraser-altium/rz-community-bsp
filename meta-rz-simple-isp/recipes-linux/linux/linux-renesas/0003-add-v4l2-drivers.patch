@@ -1,0 +1,1322 @@
+diff --git a/drivers/media/common/videobuf2/videobuf2-core.c b/drivers/media/common/videobuf2/videobuf2-core.c
+index 3bafde8..8cd3bbf 100644
+--- a/drivers/media/common/videobuf2/videobuf2-core.c
++++ b/drivers/media/common/videobuf2/videobuf2-core.c
+@@ -30,6 +30,15 @@
+ #include <media/v4l2-mc.h>
+ 
+ #include <trace/events/vb2.h>
++// #ifdef ENABLE_ISP
++#include <linux/isp_ctrl.h>
++//#define VB2_CORE_DEBUG
++#ifdef VB2_CORE_DEBUG
++#define ispprintk(fmt, arg...)		printk(fmt, ##arg)
++#else
++#define ispprintk(fmt, arg...)
++#endif
++// #endif // ENABLE_ISP
+ 
+ static int debug;
+ module_param(debug, int, 0644);
+@@ -1074,7 +1083,16 @@ void vb2_buffer_done(struct vb2_buffer *vb, enum vb2_buffer_state state)
+ 		return;
+ 	default:
+ 		/* Inform any processes that may be waiting for buffers */
+-		wake_up(&q->done_wq);
++// #ifdef ENABLE_ISP
++		//wake_up(&q->done_wq);
++		if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++			ispprintk("%s: wakeup isp\n", __func__);
++			q_head = &q->done_wq;
++		}else{
++			ispprintk("%s: wakeup without isp\n", __func__);
++			wake_up(&q->done_wq);
++		}
++// #endif // ENABLE_ISP
+ 		break;
+ 	}
+ }
+@@ -1758,6 +1776,22 @@ int vb2_core_qbuf(struct vb2_queue *q, unsigned int index, void *pb,
+ }
+ EXPORT_SYMBOL_GPL(vb2_core_qbuf);
+ 
++// #ifdef ENABLE_ISP
++static int chk_isp_wakeup( const struct list_head *list )
++{
++	int ret = 0;
++	if (!list_empty(list)) {
++		struct vb2_buffer *vb_tmp;
++		vb_tmp = list_first_entry(list, struct vb2_buffer, done_entry);
++		if( isp_ctrl_chk_index_complete(vb_tmp->index) )
++		{
++			ret = 1;
++		}
++	}
++	return ret;
++}
++// #endif // ENABLE_ISP
++
+ /*
+  * __vb2_wait_for_done_vb() - wait for a buffer to become available
+  * for dequeuing
+@@ -1798,12 +1832,18 @@ static int __vb2_wait_for_done_vb(struct vb2_queue *q, int nonblocking)
+ 			return -EPIPE;
+ 		}
+ 
+-		if (!list_empty(&q->done_list)) {
+-			/*
+-			 * Found a buffer that we were waiting for.
+-			 */
++// #ifdef ENABLE_ISP
++//		if (!list_empty(&q->done_list)) {
++//			/*
++//			 * Found a buffer that we were waiting for.
++//			 */
++//			break;
++//		}
++		if( chk_isp_wakeup(&q->done_list) )
++		{
+ 			break;
+ 		}
++// #endif // ENABLE_ISP
+ 
+ 		if (nonblocking) {
+ 			dprintk(q, 3, "nonblocking and no buffers to dequeue, will not wait\n");
+@@ -1822,9 +1862,14 @@ static int __vb2_wait_for_done_vb(struct vb2_queue *q, int nonblocking)
+ 		 * All locks have been released, it is safe to sleep now.
+ 		 */
+ 		dprintk(q, 3, "will sleep waiting for buffers\n");
++// #ifdef ENABLE_ISP
++//		ret = wait_event_interruptible(q->done_wq,
++//				!list_empty(&q->done_list) || !q->streaming ||
++//				q->error);
+ 		ret = wait_event_interruptible(q->done_wq,
+-				!list_empty(&q->done_list) || !q->streaming ||
++				chk_isp_wakeup(&q->done_list) || !q->streaming ||
+ 				q->error);
++// #endif // ENABLE_ISP
+ 
+ 		/*
+ 		 * We need to reevaluate both conditions again after reacquiring
+diff --git a/drivers/media/platform/rzg2l-cru/rzg2l-core.c b/drivers/media/platform/rzg2l-cru/rzg2l-core.c
+index 80fb079..7ca8774 100644
+--- a/drivers/media/platform/rzg2l-cru/rzg2l-core.c
++++ b/drivers/media/platform/rzg2l-cru/rzg2l-core.c
+@@ -21,6 +21,11 @@
+ #include <media/v4l2-mc.h>
+ 
+ #include "rzg2l-cru.h"
++//#ifdef ENABLE_ISP
++#include <linux/simple_isp.h>
++#include <linux/simple_isp_default.h>
++#include <uapi/linux/renesas-v4l2-controls.h>
++//#endif //ENABLE_ISP
+ 
+ #define v4l2_dev_to_cru(d)	container_of(d, struct rzg2l_cru_dev, v4l2_dev)
+ 
+@@ -464,6 +469,7 @@ static int rzg2l_cru_s_ctrl(struct v4l2_ctrl *ctrl)
+ 						 ctrl_handler);
+ 	int ret = 0, order;
+ 
++	dprintk("%s: start\n", __func__);
+ 	switch (ctrl->id) {
+ 	case V4L2_CID_CRU_LINEAR_MATRIX_ROF:
+ 	case V4L2_CID_CRU_LINEAR_MATRIX_GOF:
+@@ -523,6 +529,7 @@ static int rzg2l_cru_s_ctrl(struct v4l2_ctrl *ctrl)
+ 		}
+ 	};
+ 
++	dprintk("%s: finish\n", __func__);
+ 	return ret;
+ }
+ 
+@@ -530,6 +537,182 @@ static const struct v4l2_ctrl_ops rzg2l_cru_ctrl_ops = {
+ 	.s_ctrl = rzg2l_cru_s_ctrl,
+ };
+ 
++static struct v4l2_ctrl_config rzg2l_cru_ctrls_isp[] = {
++	{
++			.ops    = &rzg2l_cru_ctrl_ops,
++			.id     = V4L2_CID_RZ_ISP_IN_FMT,
++			.name   = "In Format",
++			.type   = V4L2_CTRL_TYPE_INTEGER,
++			.min    = ISP_LIMIT_IN_FMT_MIN,
++			.max    = ISP_LIMIT_IN_FMT_MAX,
++			.step   = ISP_LIMIT_IN_FMT_STEP,
++			.def    = ISP_LIMIT_IN_FMT_DEFAULT,
++	},
++	{
++			.ops    = &rzg2l_cru_ctrl_ops,
++			.id     = V4L2_CID_RZ_ISP_FRM_INTERVAL,
++			.name   = "Frame Interval",
++			.type   = V4L2_CTRL_TYPE_INTEGER,
++			.min    = ISP_LIMIT_FRM_INTERVAL_MIN,
++			.max    = ISP_LIMIT_FRM_INTERVAL_MAX,
++			.step   = ISP_LIMIT_FRM_INTERVAL_STEP,
++			.def    = ISP_LIMIT_FRM_INTERVAL_DEFAULT,
++	},
++	{
++			.ops    = &rzg2l_cru_ctrl_ops,
++			.id     = V4L2_CID_RZ_ISP_BL,
++			.name   = "Black Level",
++			.type   = V4L2_CTRL_TYPE_INTEGER,
++			.min    = ISP_LIMIT_BL_MIN,
++			.max    = ISP_LIMIT_BL_MAX,
++			.step   = ISP_LIMIT_BL_STEP,
++			.def    = ISP_LIMIT_BL_DEFAULT,
++	},
++	{
++			.ops    = &rzg2l_cru_ctrl_ops,
++			.id     = V4L2_CID_RZ_ISP_WB,
++			.name   = "White Balance",
++			.type   = V4L2_CTRL_TYPE_INTEGER,
++			.min    = ISP_LIMIT_WB_MIN,
++			.max    = ISP_LIMIT_WB_MAX,
++			.step   = ISP_LIMIT_WB_STEP,
++			.def    = ISP_LIMIT_WB_DEFAULT,
++	},
++	{
++			.ops    = &rzg2l_cru_ctrl_ops,
++			.id     = V4L2_CID_RZ_ISP_GAMMA,
++			.name   = "Gamma",
++			.type   = V4L2_CTRL_TYPE_INTEGER,
++			.min    = ISP_LIMIT_GAMMA_MIN,
++			.max    = ISP_LIMIT_GAMMA_MAX,
++			.step   = ISP_LIMIT_GAMMA_STEP,
++			.def    = ISP_LIMIT_GAMMA_DEFAULT,
++	},
++	{
++			.ops    = &rzg2l_cru_ctrl_ops,
++			.id     = V4L2_CID_RZ_ISP_CMX,
++			.name   = "Color Matrix",
++			.type   = V4L2_CTRL_TYPE_INTEGER,
++			.min    = ISP_LIMIT_CMX_MIN,
++			.max    = ISP_LIMIT_CMX_MAX,
++			.step   = ISP_LIMIT_CMX_STEP,
++			.def    = ISP_LIMIT_CMX_DEFAULT,
++	},
++	{
++			.ops    = &rzg2l_cru_ctrl_ops,
++			.id     = V4L2_CID_RZ_ISP_2DNR,
++			.name   = "2D Noise Reduction",
++			.type   = V4L2_CTRL_TYPE_INTEGER,
++			.min    = ISP_LIMIT_2DNR_MIN,
++			.max    = ISP_LIMIT_2DNR_MAX,
++			.step   = ISP_LIMIT_2DNR_STEP,
++			.def    = ISP_LIMIT_2DNR_DEFAULT,
++	},
++	{
++			.ops    = &rzg2l_cru_ctrl_ops,
++			.id     = V4L2_CID_RZ_ISP_3DNR,
++			.name   = "3D Noize Reduction",
++			.type   = V4L2_CTRL_TYPE_INTEGER,
++			.min    = ISP_LIMIT_3DNR_MIN,
++			.max    = ISP_LIMIT_3DNR_MAX,
++			.step   = ISP_LIMIT_3DNR_STEP,
++			.def    = ISP_LIMIT_3DNR_DEFAULT,
++	},
++	{
++			.ops    = &rzg2l_cru_ctrl_ops,
++			.id     = V4L2_CID_RZ_ISP_EMP,
++			.name   = "EMP",
++			.type   = V4L2_CTRL_TYPE_INTEGER,
++			.min    = ISP_LIMIT_EMP_MIN,
++			.max    = ISP_LIMIT_EMP_MAX,
++			.step   = ISP_LIMIT_EMP_STEP,
++			.def    = ISP_LIMIT_EMP_DEFAULT,
++	},
++	{
++			.ops    = &rzg2l_cru_ctrl_ops,
++			.id     = V4L2_CID_RZ_ISP_DRP_LV,
++			.name   = "DRP Priority Level",
++			.type   = V4L2_CTRL_TYPE_INTEGER,
++			.min    = ISP_LIMIT_DRP_LV_MIN,
++			.max    = ISP_LIMIT_DRP_LV_MAX,
++			.step   = ISP_LIMIT_DRP_LV_STEP,
++			.def    = ISP_LIMIT_DRP_LV_DEFAULT,
++	},
++	{
++			.ops    = &rzg2l_cru_ctrl_ops,
++			.id     = V4L2_CID_RZ_ISP_AE,
++			.name   = "AE On Off",
++			.type   = V4L2_CTRL_TYPE_INTEGER,
++			.min    = ISP_LIMIT_AE_MIN,
++			.max    = ISP_LIMIT_AE_MAX,
++			.step   = ISP_LIMIT_AE_STEP,
++			.def    = ISP_LIMIT_AE_DEFAULT,
++	},
++	{
++			.ops    = &rzg2l_cru_ctrl_ops,
++			.id     = V4L2_CID_RZ_ISP_EXPOSE_LV,
++			.name   = "Expose Level",
++			.type   = V4L2_CTRL_TYPE_INTEGER,
++			.min    = ISP_LIMIT_EXPOSE_LV_MIN,
++			.max    = ISP_LIMIT_EXPOSE_LV_MAX,
++			.step   = ISP_LIMIT_EXPOSE_LV_STEP,
++			.def    = ISP_LIMIT_EXPOSE_LV_DEFAULT,
++	},
++	{
++			.ops    = &rzg2l_cru_ctrl_ops,
++			.id     = V4L2_CID_RZ_ISP_T_BL,
++			.name   = "Target Black Level",
++			.type   = V4L2_CTRL_TYPE_INTEGER,
++			.min    = ISP_LIMIT_T_BL_MIN,
++			.max    = ISP_LIMIT_T_BL_MAX,
++			.step   = ISP_LIMIT_T_BL_STEP,
++			.def    = ISP_LIMIT_T_BL_DEFAULT,
++	},
++	{
++			.ops    = &rzg2l_cru_ctrl_ops,
++			.id     = V4L2_CID_RZ_ISP_THRESHOLD,
++			.name   = "Threshold",
++			.type   = V4L2_CTRL_TYPE_INTEGER,
++			.min    = ISP_LIMIT_THRESHOLD_MIN,
++			.max    = ISP_LIMIT_THRESHOLD_MAX,
++			.step   = ISP_LIMIT_THRESHOLD_STEP,
++			.def    = ISP_LIMIT_THRESHOLD_DEFAULT,
++	},
++	{
++			.ops    = &rzg2l_cru_ctrl_ops,
++			.id     = V4L2_CID_RZ_ISP_ALL,
++			.name   = "ALL Parameter",
++			.type   = V4L2_CTRL_COMPOUND_TYPES,
++			.min    = ISP_LIMIT_ALL_MIN,
++			.max    = ISP_LIMIT_ALL_MAX,
++			.step   = ISP_LIMIT_ALL_STEP,
++			.def    = ISP_LIMIT_ALL_DEFAULT,
++			.flags = V4L2_CTRL_FLAG_HAS_PAYLOAD,
++			.dims[0] = V4L2_RZ_ISP_ALL_DIMS,
++	},
++	{
++			.ops    = &rzg2l_cru_ctrl_ops,
++			.id     = V4L2_CID_RZ_ISP_AWB,
++			.name   = "Auto Whhite Balance",
++			.type   = V4L2_CTRL_TYPE_INTEGER,
++			.min    = ISP_LIMIT_AWB_MIN,
++			.max    = ISP_LIMIT_AWB_MAX,
++			.step   = ISP_LIMIT_AWB_STEP,
++			.def    = ISP_LIMIT_AWB_DEFAULT,
++	},
++	{
++		    .ops = &rzg2l_cru_ctrl_ops,
++    		.id = V4L2_CID_CRU_FRAME_SKIP,
++    		.name = "Skipping Frames Enable/Disable",
++	    	.type = V4L2_CTRL_TYPE_BOOLEAN,
++		    .min = 0,
++	    	.max = 1,
++    		.step = 1,
++	    	.def = 0,
++		    .is_private = 1,
++	}
++};
++
+ static int rzg2l_cru_probe(struct platform_device *pdev)
+ {
+ 	struct rzg2l_cru_dev *cru;
+@@ -584,17 +767,18 @@ static int rzg2l_cru_probe(struct platform_device *pdev)
+ 		goto error_dma_unregister;
+ 
+ 	/* Add the control about minimum amount of buffers */
+-	num_ctrls = ARRAY_SIZE(rzg2l_cru_ctrls);
++	num_ctrls = ARRAY_SIZE(rzg2l_cru_ctrls_isp);
+ 	v4l2_ctrl_handler_init(&cru->ctrl_handler, num_ctrls + 1);
+ 	ctrl = v4l2_ctrl_new_std(&cru->ctrl_handler, &rzg2l_cru_ctrl_ops,
+ 			  V4L2_CID_MIN_BUFFERS_FOR_CAPTURE,
+ 			  2, HW_BUFFER_MAX, 1, HW_BUFFER_DEFAULT);
+ 
+-	ctrl->flags &= ~V4L2_CTRL_FLAG_READ_ONLY;
++// #ifdef ENABLE_ISP
++	for (i = 0; i < ARRAY_SIZE(rzg2l_cru_ctrls_isp); i++)
++			v4l2_ctrl_new_custom(&cru->ctrl_handler, &rzg2l_cru_ctrls_isp[i], NULL);
++// #endif //ENABLE_ISP
+ 
+-	for (i = 0; i < num_ctrls; i++)
+-		v4l2_ctrl_new_custom(&cru->ctrl_handler,
+-				     &rzg2l_cru_ctrls[i], NULL);
++	ctrl->flags &= ~V4L2_CTRL_FLAG_READ_ONLY;
+ 
+ 	v4l2_ctrl_handler_setup(&cru->ctrl_handler);
+ 
+diff --git a/drivers/media/platform/rzg2l-cru/rzg2l-cru.h b/drivers/media/platform/rzg2l-cru/rzg2l-cru.h
+index d026fde..cde4824 100644
+--- a/drivers/media/platform/rzg2l-cru/rzg2l-cru.h
++++ b/drivers/media/platform/rzg2l-cru/rzg2l-cru.h
+@@ -73,16 +73,18 @@ static const char * const cru_statistics_blksize_menu[] = {
+ 
+ static const struct v4l2_ctrl_config rzg2l_cru_ctrls[] = {
+ 	{
+-		.id = V4L2_CID_CRU_FRAME_SKIP,
+-		.type = V4L2_CTRL_TYPE_BOOLEAN,
+-		.ops = &rzg2l_cru_ctrl_ops,
+-		.name = "Skipping Frames Enable/Disable",
+-		.max = 1,
+-		.min = 0,
+-		.step = 1,
+-		.def = 0,
+-		.is_private = 1,
+-	}, {
++// #ifdef ENABLE_ISP
++//		.id = V4L2_CID_CRU_FRAME_SKIP,
++//		.type = V4L2_CTRL_TYPE_BOOLEAN,
++//		.ops = &rzg2l_cru_ctrl_ops,
++//		.name = "Skipping Frames Enable/Disable",
++//		.max = 1,
++//		.min = 0,
++//		.step = 1,
++//		.def = 0,
++//		.is_private = 1,
++//	}, {
++// #endif //ENABLE_ISP
+ 		.id = V4L2_CID_CRU_STATISTICS,
+ 		.type = V4L2_CTRL_TYPE_BOOLEAN,
+ 		.ops = &rzg2l_cru_ctrl_ops,
+@@ -437,6 +439,13 @@ struct rzg2l_cru_dev {
+ #define cru_warn(d, fmt, arg...)	dev_warn(d->dev, fmt, ##arg)
+ #define cru_err(d, fmt, arg...)		dev_err(d->dev, fmt, ##arg)
+ 
++//#define DEBUG
++#ifdef DEBUG
++#define dprintk(fmt, arg...)		printk(fmt, ##arg)
++#else
++#define dprintk(fmt, arg...)
++#endif
++
+ /**
+  * struct rzg2l_cru_group - CRU CSI2 group information
+  * @mdev:	media device which represents the group
+diff --git a/drivers/media/platform/rzg2l-cru/rzg2l-csi2.c b/drivers/media/platform/rzg2l-cru/rzg2l-csi2.c
+index af77326..be4c520 100644
+--- a/drivers/media/platform/rzg2l-cru/rzg2l-csi2.c
++++ b/drivers/media/platform/rzg2l-cru/rzg2l-csi2.c
+@@ -178,6 +178,14 @@ struct rzg2l_csi2 {
+ 	unsigned long hsfreq;
+ };
+ 
++//#ifdef ENABLE_ISP
++static inline struct rzg2l_csi2 *sd_to_csi2(struct v4l2_subdev *sd);
++struct v4l2_subdev *rgz2l_csi2_get_remote(struct v4l2_subdev *sd)
++{
++	struct rzg2l_csi2 *dev = sd_to_csi2(sd);
++	return dev->remote;
++}
++//#endif ENABLE_ISP
+ static inline struct rzg2l_csi2 *sd_to_csi2(struct v4l2_subdev *sd)
+ {
+ 	return container_of(sd, struct rzg2l_csi2, subdev);
+diff --git a/drivers/media/platform/rzg2l-cru/rzg2l-dma.c b/drivers/media/platform/rzg2l-cru/rzg2l-dma.c
+index 442281d..0a67c7b 100644
+--- a/drivers/media/platform/rzg2l-cru/rzg2l-dma.c
++++ b/drivers/media/platform/rzg2l-cru/rzg2l-dma.c
+@@ -15,6 +15,9 @@
+ #include <media/videobuf2-dma-contig.h>
+ 
+ #include "rzg2l-cru.h"
++//#ifdef ENABLE_ISP
++#include <linux/isp_ctrl.h>
++//#endif // ENABLE_ISP
+ 
+ /* HW CRU Registers Definition */
+ /* CRU Control Register */
+@@ -544,7 +547,10 @@ static void rzg2l_cru_fill_hw_slot(struct rzg2l_cru_dev *cru, int slot)
+ {
+ 	struct rzg2l_cru_buffer *buf;
+ 	struct vb2_v4l2_buffer *vbuf;
+-	dma_addr_t phys_addr;
++// #ifdef ENABLE_ISP
++//	dma_addr_t phys_addr;
++	dma_addr_t phys_addr, out_phys_addr;
++// #endif //ENABLE_ISP
+ 
+ 	/* A already populated slot shall never be overwritten. */
+ 	if (WARN_ON(cru->queue_buf[slot] != NULL))
+@@ -564,7 +570,12 @@ static void rzg2l_cru_fill_hw_slot(struct rzg2l_cru_dev *cru, int slot)
+ 		cru->queue_buf[slot] = vbuf;
+ 
+ 		/* Setup DMA */
+-		phys_addr = vb2_dma_contig_plane_dma_addr(&vbuf->vb2_buf, 0);
++// #ifdef ENABLE_ISP
++//		phys_addr = vb2_dma_contig_plane_dma_addr(&vbuf->vb2_buf, 0);
++		phys_addr = isp_ctrl_get_camera_phys_addr();
++		out_phys_addr = vb2_dma_contig_plane_dma_addr(&vbuf->vb2_buf, 0);
++		isp_ctrl_dma_add_list_tail(phys_addr, out_phys_addr);
++// #endif //ENABLE_ISP
+ 	}
+ 
+ 	rzg2l_cru_set_slot_addr(cru, slot, phys_addr);
+@@ -638,6 +649,7 @@ static void rzg2l_cru_csi2_setup(struct rzg2l_cru_dev *cru)
+ 		icnmc = ICnMC_INF_RGB666;
+ 		cru->input_fmt = RGB;
+ 		break;
++	case MEDIA_BUS_FMT_RGB888_1X24:
+ 	case MEDIA_BUS_FMT_BGR888_1X24:
+ 		icnmc = ICnMC_INF_RGB888;
+ 		cru->input_fmt = RGB;
+@@ -1555,6 +1567,8 @@ static irqreturn_t rzg2l_cru_irq(int irq, void *data)
+ 		goto done;
+ 	}
+ 
++#if 1
++//#ifdef ENABLE_ISP
+ 	/* Capture frame */
+ 	if (cru->queue_buf[slot]) {
+ 		cru->queue_buf[slot]->field = cru->format.field;
+@@ -1562,12 +1576,28 @@ static irqreturn_t rzg2l_cru_irq(int irq, void *data)
+ 		cru->queue_buf[slot]->vb2_buf.timestamp = ktime_get_ns();
+ 		vb2_buffer_done(&cru->queue_buf[slot]->vb2_buf,
+ 				VB2_BUF_STATE_DONE);
++		isp_ctrl_buffer_done(&cru->queue_buf[slot]->vb2_buf);
+ 		cru->queue_buf[slot] = NULL;
+ 	} else {
+ 		/* Scratch buffer was used, dropping frame. */
+ 		cru_dbg(cru, "Dropping frame %u\n", cru->sequence);
+ 	}
++//#endif //ENABLE_ISP
++#else
+ 
++	/* Capture frame */
++	if (cru->queue_buf[slot]) {
++		cru->queue_buf[slot]->field = cru->format.field;
++		cru->queue_buf[slot]->sequence = cru->sequence;
++		cru->queue_buf[slot]->vb2_buf.timestamp = ktime_get_ns();
++		vb2_buffer_done(&cru->queue_buf[slot]->vb2_buf,
++				VB2_BUF_STATE_DONE);
++		cru->queue_buf[slot] = NULL;
++	} else {
++		/* Scratch buffer was used, dropping frame. */
++		cru_dbg(cru, "Dropping frame %u\n", cru->sequence);
++	}
++#endif
+ 	cru->sequence++;
+ 
+ 	/* Prepare for next frame */
+diff --git a/drivers/media/platform/rzg2l-cru/rzg2l-v4l2.c b/drivers/media/platform/rzg2l-cru/rzg2l-v4l2.c
+index cc51d35..4db3bb7 100644
+--- a/drivers/media/platform/rzg2l-cru/rzg2l-v4l2.c
++++ b/drivers/media/platform/rzg2l-cru/rzg2l-v4l2.c
+@@ -15,6 +15,9 @@
+ #include <media/v4l2-rect.h>
+ 
+ #include "rzg2l-cru.h"
++//#ifdef ENABLE_ISP
++#include <linux/isp_ctrl.h>
++//#endif // ENABLE_ISP
+ 
+ #define RZG2L_CRU_DEFAULT_FORMAT	V4L2_PIX_FMT_YUYV
+ #define RZG2L_CRU_DEFAULT_WIDTH		800
+@@ -22,6 +25,24 @@
+ #define RZG2L_CRU_DEFAULT_FIELD		V4L2_FIELD_NONE
+ #define RZG2L_CRU_DEFAULT_COLORSPACE	V4L2_COLORSPACE_SRGB
+ 
++//#ifdef ENABLE_ISP
++static u32 rzg2l_cru_format_bytesperline(struct v4l2_pix_format *pix);
++u32 rzg2l_cru_isp_format_bytesperline(struct v4l2_pix_format *pix)
++{
++	return rzg2l_cru_format_bytesperline(pix);
++}
++struct v4l2_subdev *rzg2l_cru_get_csi_subdev(struct file *file)
++{
++	struct rzg2l_cru_dev *cru = video_drvdata(file);
++	return  cru->group->csi.subdev;
++}
++void rzg2l_cru_set_pixelformat(struct file *file, __u32 format)
++{
++	struct rzg2l_cru_dev *cru = video_drvdata(file);
++	cru->format.pixelformat = format;
++}
++//#endif // ENABLE_ISP
++
+ /* -----------------------------------------------------------------------------
+  * Format Conversions
+  */
+@@ -43,6 +64,14 @@ static const struct rzg2l_cru_video_format rzg2l_cru_formats[] = {
+ 		.fourcc			= V4L2_PIX_FMT_UYVY,
+ 		.bpp			= 2,
+ 	},
++// #ifdef ENABLE_ISP
++#if 1
++	{
++		.fourcc			= V4L2_PIX_FMT_RGB24,
++		.bpp			= 3,
++	},
++#endif
++// #endif
+ 	{
+ 		.fourcc			= V4L2_PIX_FMT_BGR24,
+ 		.bpp			= 3,
+@@ -141,6 +170,19 @@ static const struct rzg2l_cru_video_format rzg2l_cru_formats[] = {
+ 	},
+ };
+ 
++//#ifdef ENABLE_ISP
++#define RZG2L_CRU_FMT_IDX_YUYV		(2)
++#define RZG2L_CRU_FMT_IDX_UYVY		(3)
++#define RZG2L_CRU_FMT_IDX_RGB24		(4)
++#define RZG2L_CRU_FMT_IDX_ARGB32	(8)
++static const struct rzg2l_cru_video_format* rzg2l_cru_isp_formats[]={
++	&rzg2l_cru_formats[RZG2L_CRU_FMT_IDX_YUYV], 	/* V4L2_PIX_FMT_YUYV */
++	&rzg2l_cru_formats[RZG2L_CRU_FMT_IDX_UYVY],		/* V4L2_PIX_FMT_UYVY */
++	&rzg2l_cru_formats[RZG2L_CRU_FMT_IDX_RGB24],	/* V4L2_PIX_FMT_RGB24 */
++	&rzg2l_cru_formats[RZG2L_CRU_FMT_IDX_ARGB32],	/* V4L2_PIX_FMT_ARGB32 */
++};
++//#endif // ENABLE_ISP
++
+ const struct rzg2l_cru_video_format
+ *rzg2l_cru_format_from_pixel(u32 pixelformat)
+ {
+@@ -155,6 +197,34 @@ const struct rzg2l_cru_video_format
+ 
+ static u32 rzg2l_cru_format_bytesperline(struct v4l2_pix_format *pix)
+ {
++#if 1
++    //for ISP Support PKG
++	const struct rzg2l_cru_video_format *fmt;
++    u32 bytesperline;
++    
++    if( pix->pixelformat == V4L2_PIX_FMT_SRGGB8 )
++    {
++        bytesperline = pix->width;
++    }
++    else if( pix->pixelformat == V4L2_PIX_FMT_SRGGB10 )
++    {
++        bytesperline = ((pix->width + 11)/12) * 8 * 2;
++    }
++    else if( pix->pixelformat == V4L2_PIX_FMT_SRGGB12 )
++    {
++        bytesperline = ((pix->width + 19)/20) * 8 * 4;
++    }
++    else
++    {
++    	fmt = rzg2l_cru_format_from_pixel(pix->pixelformat);
++
++        if (WARN_ON(!fmt))
++            return -EINVAL;
++
++        bytesperline = pix->width * fmt->bpp;
++    }
++    return bytesperline;
++#else
+ 	const struct rzg2l_cru_video_format *fmt;
+ 
+ 	fmt = rzg2l_cru_format_from_pixel(pix->pixelformat);
+@@ -163,6 +233,7 @@ static u32 rzg2l_cru_format_bytesperline(struct v4l2_pix_format *pix)
+ 		return -EINVAL;
+ 
+ 	return pix->width * fmt->bpp;
++#endif
+ }
+ 
+ static u32 rzg2l_cru_format_sizeimage(struct v4l2_pix_format *pix)
+@@ -275,6 +346,7 @@ static int rzg2l_cru_querycap(struct file *file, void *priv,
+ {
+ 	struct rzg2l_cru_dev *cru = video_drvdata(file);
+ 
++	dprintk("[info] %s: start\n", __func__);
+ 	strlcpy(cap->driver, KBUILD_MODNAME, sizeof(cap->driver));
+ 	strlcpy(cap->card, "RZG2L_CRU", sizeof(cap->card));
+ 	snprintf(cap->bus_info, sizeof(cap->bus_info), "platform:%s",
+@@ -287,6 +359,7 @@ static int rzg2l_cru_mc_try_fmt_vid_cap(struct file *file, void *priv,
+ {
+ 	struct rzg2l_cru_dev *cru = video_drvdata(file);
+ 
++	dprintk("[info] %s: start\n", __func__);
+ 	rzg2l_cru_mc_try_format(cru, &f->fmt.pix);
+ 
+ 	return 0;
+@@ -297,6 +370,7 @@ static int rzg2l_cru_mc_s_fmt_vid_cap(struct file *file, void *priv,
+ {
+ 	struct rzg2l_cru_dev *cru = video_drvdata(file);
+ 
++	dprintk("[info] %s: start\n", __func__);
+ 	if (vb2_is_busy(&cru->queue))
+ 		return -EBUSY;
+ 
+@@ -318,6 +392,7 @@ static int rzg2l_cru_g_fmt_vid_cap(struct file *file, void *priv,
+ {
+ 	struct rzg2l_cru_dev *cru = video_drvdata(file);
+ 
++	dprintk("[info] %s: start\n", __func__);
+ 	f->fmt.pix = cru->format;
+ 
+ 	return 0;
+@@ -326,10 +401,20 @@ static int rzg2l_cru_g_fmt_vid_cap(struct file *file, void *priv,
+ static int rzg2l_cru_enum_fmt_vid_cap(struct file *file, void *priv,
+ 				 struct v4l2_fmtdesc *f)
+ {
++	dprintk("[info] %s: start\n", __func__);
++//#ifdef ENABLE_ISP
++#if 0
+ 	if (f->index >= ARRAY_SIZE(rzg2l_cru_formats))
+ 		return -EINVAL;
+ 
+ 	f->pixelformat = rzg2l_cru_formats[f->index].fourcc;
++#else
++	if (f->index >= ARRAY_SIZE(rzg2l_cru_isp_formats))
++		return -EINVAL;
++
++	f->pixelformat = rzg2l_cru_isp_formats[f->index]->fourcc;
++#endif
++//#endif ENABLE_ISP
+ 
+ 	return 0;
+ }
+@@ -340,6 +425,7 @@ static int rzg2l_cru_g_selection(struct file *file, void *fh,
+ 	struct rzg2l_cru_dev *cru = video_drvdata(file);
+ 	int ret;
+ 
++	dprintk("[info] %s: start\n", __func__);
+ 	if (s->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
+ 		return -EINVAL;
+ 
+@@ -385,6 +471,7 @@ static int rzg2l_cru_s_selection(struct file *file, void *fh,
+ 		.height = 2,
+ 	};
+ 
++	dprintk("[info] %s: start\n", __func__);
+ 	if (s->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
+ 		return -EINVAL;
+ 
+@@ -444,12 +531,14 @@ static int rzg2l_cru_s_selection(struct file *file, void *fh,
+ 
+ static int rzg2l_cru_g_input(struct file *file, void *priv, unsigned int *i)
+ {
++	dprintk("[info] %s: start\n", __func__);
+ 	*i = 0;
+ 	return 0;
+ }
+ 
+ static int rzg2l_cru_s_input(struct file *file, void *priv, unsigned int i)
+ {
++	dprintk("[info] %s: start\n", __func__);
+ 	if (i > 0)
+ 		return -EINVAL;
+ 	return 0;
+@@ -458,6 +547,7 @@ static int rzg2l_cru_s_input(struct file *file, void *priv, unsigned int i)
+ static int rzg2l_cru_mc_enum_input(struct file *file, void *priv,
+ 			      struct v4l2_input *i)
+ {
++	dprintk("[info] %s: start\n", __func__);
+ 	if (i->index != 0)
+ 		return -EINVAL;
+ 
+@@ -470,6 +560,7 @@ static int rzg2l_cru_mc_enum_input(struct file *file, void *priv,
+ static int rzg2l_cru_subscribe_event(struct v4l2_fh *fh,
+ 				     const struct v4l2_event_subscription *sub)
+ {
++	dprintk("[info] %s: start\n", __func__);
+ 	switch (sub->type) {
+ 	case V4L2_EVENT_SOURCE_CHANGE:
+ 		return v4l2_event_subscribe(fh, sub, 4, NULL);
+@@ -515,6 +606,9 @@ static int rzg2l_cru_mc_open(struct file *file)
+ 	struct rzg2l_cru_dev *cru = video_drvdata(file);
+ 	int ret;
+ 
++// #ifdef ENABLE_ISP
++    isp_ctrl_init(file);
++// #endif // ENABLE_ISP
+ 	ret = mutex_lock_interruptible(&cru->lock);
+ 	if (ret)
+ 		return ret;
+@@ -553,6 +647,9 @@ static int rzg2l_cru_mc_release(struct file *file)
+ 	struct rzg2l_cru_dev *cru = video_drvdata(file);
+ 	int ret;
+ 
++// #ifdef ENABLE_ISP
++	isp_ctrl_deinit();
++// #endif // ENABLE_ISP
+ 	mutex_lock(&cru->lock);
+ 
+ 	/* the release helper will cleanup any on-going streaming. */
+@@ -631,7 +728,11 @@ int rzg2l_cru_v4l2_register(struct rzg2l_cru_dev *cru)
+ 
+ 	rzg2l_cru_format_align(cru, &cru->format);
+ 
+-	ret = video_register_device(&cru->vdev, VFL_TYPE_VIDEO, -1);
++//#ifdef ENABLE_ISP
++// fixed device name (/dev/video0)
++//	ret = video_register_device(&cru->vdev, VFL_TYPE_VIDEO, -1);
++	ret = video_register_device(&cru->vdev, VFL_TYPE_VIDEO, 0);
++//#endif //ENABLE_ISP
+ 	if (ret) {
+ 		cru_err(cru, "Failed to register video device\n");
+ 		return ret;
+diff --git a/drivers/media/v4l2-core/v4l2-ctrls.c b/drivers/media/v4l2-core/v4l2-ctrls.c
+index 41f8410..9d406f3 100644
+--- a/drivers/media/v4l2-core/v4l2-ctrls.c
++++ b/drivers/media/v4l2-core/v4l2-ctrls.c
+@@ -19,6 +19,11 @@
+ #include <media/v4l2-fwnode.h>
+ #include <media/v4l2-ioctl.h>
+ 
++// #ifdef ENABLE_ISP
++#include <linux/isp_ctrl.h>
++#include <uapi/linux/renesas-v4l2-controls.h>
++// #endif // ENABLE_ISP
++
+ #define dprintk(vdev, fmt, arg...) do {					\
+ 	if (!WARN_ON(!(vdev)) && ((vdev)->dev_debug & V4L2_DEV_DEBUG_CTRL)) \
+ 		printk(KERN_DEBUG pr_fmt("%s: %s: " fmt),		\
+@@ -3731,6 +3736,21 @@ static int v4l2_g_ext_ctrls_common(struct v4l2_ctrl_handler *hdl,
+ 		do {
+ 			struct v4l2_ctrl_ref *ref = helpers[idx].ref;
+ 
++// #ifndef ENABLE_ISP
++			if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++				ret = isp_ctrl_g_ext_ctrl(cs->controls + idx);
++			}else{
++				if (is_default)
++					ret = def_to_user(cs->controls + idx, ref->ctrl);
++				else if (is_request && ref->valid_p_req)
++					ret = req_to_user(cs->controls + idx, ref);
++				else if (is_volatile)
++					ret = new_to_user(cs->controls + idx, ref->ctrl);
++				else
++					ret = cur_to_user(cs->controls + idx, ref->ctrl);
++			}
++// #endif // ENABLE_ISP
++#if 0
+ 			if (is_default)
+ 				ret = def_to_user(cs->controls + idx, ref->ctrl);
+ 			else if (is_request && ref->valid_p_req)
+@@ -3739,6 +3759,7 @@ static int v4l2_g_ext_ctrls_common(struct v4l2_ctrl_handler *hdl,
+ 				ret = new_to_user(cs->controls + idx, ref->ctrl);
+ 			else
+ 				ret = cur_to_user(cs->controls + idx, ref->ctrl);
++#endif // 0
+ 			idx = helpers[idx].next;
+ 		} while (!ret && idx);
+ 
+@@ -3917,6 +3938,9 @@ static int try_or_set_cluster(struct v4l2_fh *fh, struct v4l2_ctrl *master,
+ 	bool update_flag;
+ 	int ret;
+ 	int i;
++//#ifdef ENABLE_ISP
++	bool cru_flag=0;
++//#endif
+ 
+ 	/* Go through the cluster and either validate the new value or
+ 	   (if no new value was set), copy the current value to the new
+@@ -3940,10 +3964,36 @@ static int try_or_set_cluster(struct v4l2_fh *fh, struct v4l2_ctrl *master,
+ 
+ 	ret = call_op(master, try_ctrl);
+ 
+-	/* Don't set if there is no change */
+-	if (ret || !set || !cluster_changed(master))
+-		return ret;
+-	ret = call_op(master, s_ctrl);
++//#ifdef ENABLE_ISP
++	if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++		if(fh != NULL){
++			if(0==strncmp(fh->vdev->name,"CRU output",10)){
++				cru_flag = 1;
++			}
++		}
++		if(cru_flag){
++			if (ret || !set)
++				return ret;
++			master->cluster[0]->has_changed = true;
++			ret = isp_ctrl_s_ctrl(master->ops->s_ctrl, master);
++		}else{
++			/* Don't set if there is no change */
++			if (ret || !set || !cluster_changed(master))
++				return ret;
++			ret = call_op(master, s_ctrl);
++		}
++	}else{
++		/* Don't set if there is no change */
++		if (ret || !set || !cluster_changed(master))
++			return ret;
++		ret = call_op(master, s_ctrl);
++	}
++//#else
++//	/* Don't set if there is no change */
++//	if (ret || !set || !cluster_changed(master))
++//		return ret;
++//	ret = call_op(master, s_ctrl);
++//#endif //ENABLE_ISP
+ 	if (ret)
+ 		return ret;
+ 
+diff --git a/drivers/media/v4l2-core/v4l2-ioctl.c b/drivers/media/v4l2-core/v4l2-ioctl.c
+index 6d6d30d..3a58151 100644
+--- a/drivers/media/v4l2-core/v4l2-ioctl.c
++++ b/drivers/media/v4l2-core/v4l2-ioctl.c
+@@ -29,6 +29,8 @@
+ 
+ #include <trace/events/v4l2.h>
+ 
++#include <linux/isp_ctrl.h>
++
+ /* Zero out the end of the struct pointed to by p.  Everything after, but
+  * not including, the specified field is cleared. */
+ #define CLEAR_AFTER_FIELD(p, field) \
+@@ -1088,7 +1090,14 @@ static int v4l_querycap(const struct v4l2_ioctl_ops *ops,
+ 	cap->device_caps = vfd->device_caps;
+ 	cap->capabilities = vfd->device_caps | V4L2_CAP_DEVICE_CAPS;
+ 
+-	ret = ops->vidioc_querycap(file, fh, cap);
++// #ifndef ENABLE_ISP
++	if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++		ret = isp_ctrl_querycap(ops->vidioc_querycap, file, fh, cap);
++	}else{
++		ret = ops->vidioc_querycap(file, fh, cap);
++	}
++//	ret = ops->vidioc_querycap(file, fh, cap);
++// #endif // ENABLE_ISP
+ 
+ 	/*
+ 	 * Drivers must not change device_caps, so check for this and
+@@ -1118,7 +1127,14 @@ static int v4l_g_input(const struct v4l2_ioctl_ops *ops,
+ 		return 0;
+ 	}
+ 
+-	return ops->vidioc_g_input(file, fh, arg);
++// #ifdef ENABLE_ISP
++	if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++		return isp_ctrl_g_input(ops->vidioc_g_input, file, fh, arg);
++	}else{
++		return ops->vidioc_g_input(file, fh, arg);
++	}
++//	return ops->vidioc_g_input(file, fh, arg);
++// #endif // ENABLE_ISP
+ }
+ 
+ static int v4l_g_output(const struct v4l2_ioctl_ops *ops,
+@@ -1147,7 +1163,14 @@ static int v4l_s_input(const struct v4l2_ioctl_ops *ops,
+ 	if (vfd->device_caps & V4L2_CAP_IO_MC)
+ 		return  *(int *)arg ? -EINVAL : 0;
+ 
+-	return ops->vidioc_s_input(file, fh, *(unsigned int *)arg);
++// #ifndef ENABLE_ISP
++	if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++		return isp_ctrl_s_input(ops->vidioc_s_input, file, fh, *(unsigned int *)arg);
++	}else{
++		return ops->vidioc_s_input(file, fh, *(unsigned int *)arg);
++	}
++//	return ops->vidioc_s_input(file, fh, *(unsigned int *)arg);
++// #endif // ENABLE_ISP
+ }
+ 
+ static int v4l_s_output(const struct v4l2_ioctl_ops *ops,
+@@ -1209,7 +1232,14 @@ static int v4l_enuminput(const struct v4l2_ioctl_ops *ops,
+ 		return 0;
+ 	}
+ 
+-	return ops->vidioc_enum_input(file, fh, p);
++// #ifndef ENABLE_ISP
++	if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++		return isp_ctrl_enuminput(ops->vidioc_enum_input, file, fh, p);
++	}else{
++		return ops->vidioc_enum_input(file, fh, p);
++	}
++//	return ops->vidioc_enum_input(file, fh, p);
++// #endif // ENABLE_ISP
+ }
+ 
+ static int v4l_enumoutput(const struct v4l2_ioctl_ops *ops,
+@@ -1520,7 +1550,14 @@ static int v4l_enum_fmt(const struct v4l2_ioctl_ops *ops,
+ 
+ 		if (unlikely(!ops->vidioc_enum_fmt_vid_cap))
+ 			break;
+-		ret = ops->vidioc_enum_fmt_vid_cap(file, fh, arg);
++// #ifndef ENABLE_ISP
++		if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++			ret = isp_ctrl_enum_fmt(ops->vidioc_enum_fmt_vid_cap, file, fh, arg);
++		}else{
++			ret = ops->vidioc_enum_fmt_vid_cap(file, fh, arg);
++		}
++//		ret = ops->vidioc_enum_fmt_vid_cap(file, fh, arg);
++// #endif // ENABLE_ISP
+ 		break;
+ 	case V4L2_BUF_TYPE_VIDEO_OVERLAY:
+ 		if (unlikely(!ops->vidioc_enum_fmt_vid_overlay))
+@@ -1619,7 +1656,14 @@ static int v4l_g_fmt(const struct v4l2_ioctl_ops *ops,
+ 		if (unlikely(!ops->vidioc_g_fmt_vid_cap))
+ 			break;
+ 		p->fmt.pix.priv = V4L2_PIX_FMT_PRIV_MAGIC;
+-		ret = ops->vidioc_g_fmt_vid_cap(file, fh, arg);
++// #ifndef ENABLE_ISP
++		if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++			ret = isp_ctrl_g_fmt(ops->vidioc_g_fmt_vid_cap, file, fh, arg);
++		}else{
++			ret = ops->vidioc_g_fmt_vid_cap(file, fh, arg);
++		}
++//		ret = ops->vidioc_g_fmt_vid_cap(file, fh, arg);
++// #endif // ENABLE_ISP
+ 		/* just in case the driver zeroed it again */
+ 		p->fmt.pix.priv = V4L2_PIX_FMT_PRIV_MAGIC;
+ 		if (vfd->vfl_type == VFL_TYPE_TOUCH)
+@@ -1682,7 +1726,14 @@ static int v4l_s_fmt(const struct v4l2_ioctl_ops *ops,
+ 		if (unlikely(!ops->vidioc_s_fmt_vid_cap))
+ 			break;
+ 		CLEAR_AFTER_FIELD(p, fmt.pix);
+-		ret = ops->vidioc_s_fmt_vid_cap(file, fh, arg);
++// #ifndef ENABLE_ISP
++		if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++			ret = isp_ctrl_s_fmt(ops->vidioc_s_fmt_vid_cap, file, fh, arg);
++		}else{
++			ret = ops->vidioc_s_fmt_vid_cap(file, fh, arg);
++		}
++//		ret = ops->vidioc_s_fmt_vid_cap(file, fh, arg);
++// #endif // ENABLE_ISP
+ 		/* just in case the driver zeroed it again */
+ 		p->fmt.pix.priv = V4L2_PIX_FMT_PRIV_MAGIC;
+ 		if (vfd->vfl_type == VFL_TYPE_TOUCH)
+@@ -1784,7 +1835,14 @@ static int v4l_try_fmt(const struct v4l2_ioctl_ops *ops,
+ 		if (unlikely(!ops->vidioc_try_fmt_vid_cap))
+ 			break;
+ 		CLEAR_AFTER_FIELD(p, fmt.pix);
+-		ret = ops->vidioc_try_fmt_vid_cap(file, fh, arg);
++// #ifndef ENABLE_ISP
++		if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++			ret = isp_ctrl_try_fmt(ops->vidioc_try_fmt_vid_cap, file, fh, arg);
++		}else{
++			ret = ops->vidioc_try_fmt_vid_cap(file, fh, arg);
++		}
++//		ret = ops->vidioc_try_fmt_vid_cap(file, fh, arg);
++// #endif // ENABLE_ISP
+ 		/* just in case the driver zeroed it again */
+ 		p->fmt.pix.priv = V4L2_PIX_FMT_PRIV_MAGIC;
+ 		if (vfd->vfl_type == VFL_TYPE_TOUCH)
+@@ -1871,13 +1929,27 @@ static int v4l_try_fmt(const struct v4l2_ioctl_ops *ops,
+ static int v4l_streamon(const struct v4l2_ioctl_ops *ops,
+ 				struct file *file, void *fh, void *arg)
+ {
+-	return ops->vidioc_streamon(file, fh, *(unsigned int *)arg);
++// #ifndef ENABLE_ISP
++	if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++		return isp_ctrl_streamon(ops->vidioc_streamon, file, fh, *(unsigned int *)arg);
++	}else{
++		return ops->vidioc_streamon(file, fh, *(unsigned int *)arg);
++	}
++//	return ops->vidioc_streamon(file, fh, *(unsigned int *)arg);
++// #endif // ENABLE_ISP
+ }
+ 
+ static int v4l_streamoff(const struct v4l2_ioctl_ops *ops,
+ 				struct file *file, void *fh, void *arg)
+ {
+-	return ops->vidioc_streamoff(file, fh, *(unsigned int *)arg);
++// #ifndef ENABLE_ISP
++	if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++		return isp_ctrl_streamoff(ops->vidioc_streamoff, file, fh, *(unsigned int *)arg);
++	}else{
++		return ops->vidioc_streamoff(file, fh, *(unsigned int *)arg);
++	}
++//	return ops->vidioc_streamoff(file, fh, *(unsigned int *)arg);
++// #endif // ENABLE_ISP
+ }
+ 
+ static int v4l_g_tuner(const struct v4l2_ioctl_ops *ops,
+@@ -2063,7 +2135,14 @@ static int v4l_reqbufs(const struct v4l2_ioctl_ops *ops,
+ 
+ 	CLEAR_AFTER_FIELD(p, capabilities);
+ 
+-	return ops->vidioc_reqbufs(file, fh, p);
++// #ifndef ENABLE_ISP
++	if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++		return isp_ctrl_reqbufs(ops->vidioc_reqbufs, file, fh, p);
++	}else{
++		return ops->vidioc_reqbufs(file, fh, p);
++	}
++//	return ops->vidioc_reqbufs(file, fh, p);
++// #endif // ENABLE_ISP
+ }
+ 
+ static int v4l_querybuf(const struct v4l2_ioctl_ops *ops,
+@@ -2072,7 +2151,14 @@ static int v4l_querybuf(const struct v4l2_ioctl_ops *ops,
+ 	struct v4l2_buffer *p = arg;
+ 	int ret = check_fmt(file, p->type);
+ 
+-	return ret ? ret : ops->vidioc_querybuf(file, fh, p);
++// #ifndef ENABLE_ISP
++	if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++		return ret ? ret : isp_ctrl_querybuf(ops->vidioc_querybuf, file, fh, p);
++	}else{
++		return ret ? ret : ops->vidioc_querybuf(file, fh, p);
++	}
++//	return ret ? ret : ops->vidioc_querybuf(file, fh, p);
++// #endif // ENABLE_ISP
+ }
+ 
+ static int v4l_qbuf(const struct v4l2_ioctl_ops *ops,
+@@ -2081,16 +2167,42 @@ static int v4l_qbuf(const struct v4l2_ioctl_ops *ops,
+ 	struct v4l2_buffer *p = arg;
+ 	int ret = check_fmt(file, p->type);
+ 
+-	return ret ? ret : ops->vidioc_qbuf(file, fh, p);
++// #ifndef ENABLE_ISP
++	if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++		return ret ? ret : isp_ctrl_qbuf(ops->vidioc_qbuf, file, fh, p);
++	}else{
++		return ret ? ret : ops->vidioc_qbuf(file, fh, p);
++	}
++//	return ret ? ret : ops->vidioc_qbuf(file, fh, p);
++// #endif // ENABLE_ISP
+ }
+ 
++// #ifdef ENABLE_ISP
++static int v4l_expbuf(const struct v4l2_ioctl_ops *ops,
++				struct file *file, void *fh, void *arg)
++{
++	if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++		return isp_ctrl_expbuf(ops->vidioc_expbuf, file, fh, arg);
++	}else{
++		return ops->vidioc_expbuf(file, fh, arg);
++	}
++}
++// #endif // ENABLE_ISP
++
+ static int v4l_dqbuf(const struct v4l2_ioctl_ops *ops,
+ 				struct file *file, void *fh, void *arg)
+ {
+ 	struct v4l2_buffer *p = arg;
+ 	int ret = check_fmt(file, p->type);
+ 
+-	return ret ? ret : ops->vidioc_dqbuf(file, fh, p);
++// #ifndef ENABLE_ISP
++	if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++		return ret ? ret : isp_ctrl_dqbuf(ops->vidioc_dqbuf, file, fh, p);
++	}else{
++		return ret ? ret : ops->vidioc_dqbuf(file, fh, p);
++	}
++//	return ret ? ret : ops->vidioc_dqbuf(file, fh, p);
++// #endif // ENABLE_ISP
+ }
+ 
+ static int v4l_create_bufs(const struct v4l2_ioctl_ops *ops,
+@@ -2106,7 +2218,14 @@ static int v4l_create_bufs(const struct v4l2_ioctl_ops *ops,
+ 
+ 	v4l_sanitize_format(&create->format);
+ 
+-	ret = ops->vidioc_create_bufs(file, fh, create);
++// #ifndef ENABLE_ISP
++	if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++		ret = isp_ctrl_create_bufs(ops->vidioc_create_bufs, file, fh, create);
++	}else{
++		ret = ops->vidioc_create_bufs(file, fh, create);
++	}
++//	ret = ops->vidioc_create_bufs(file, fh, create);
++// #endif // ENABLE_ISP
+ 
+ 	if (create->format.type == V4L2_BUF_TYPE_VIDEO_CAPTURE ||
+ 	    create->format.type == V4L2_BUF_TYPE_VIDEO_OUTPUT)
+@@ -2121,7 +2240,14 @@ static int v4l_prepare_buf(const struct v4l2_ioctl_ops *ops,
+ 	struct v4l2_buffer *b = arg;
+ 	int ret = check_fmt(file, b->type);
+ 
+-	return ret ? ret : ops->vidioc_prepare_buf(file, fh, b);
++// #ifndef ENABLE_ISP
++	if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++		return ret ? ret : isp_ctrl_prepare_buf(ops->vidioc_prepare_buf, file, fh, b);
++	}else{
++		return ret ? ret : ops->vidioc_prepare_buf(file, fh, b);
++	}
++//	return ret ? ret : ops->vidioc_prepare_buf(file, fh, b);
++// #endif // ENABLE_ISP
+ }
+ 
+ static int v4l_g_parm(const struct v4l2_ioctl_ops *ops,
+@@ -2371,7 +2497,14 @@ static int v4l_g_selection(const struct v4l2_ioctl_ops *ops,
+ 		p->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+ 	else if (p->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE)
+ 		p->type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
+-	ret = ops->vidioc_g_selection(file, fh, p);
++// #ifndef ENABLE_ISP
++	if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++		ret = isp_ctrl_g_selection(ops->vidioc_g_selection, file, fh, p);
++	}else{
++		ret = ops->vidioc_g_selection(file, fh, p);
++	}
++//	ret = ops->vidioc_g_selection(file, fh, p);
++// #endif // ENABLE_ISP
+ 	p->type = old_type;
+ 	return ret;
+ }
+@@ -2387,7 +2520,14 @@ static int v4l_s_selection(const struct v4l2_ioctl_ops *ops,
+ 		p->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+ 	else if (p->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE)
+ 		p->type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
+-	ret = ops->vidioc_s_selection(file, fh, p);
++// #ifndef ENABLE_ISP
++	if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++		ret = isp_ctrl_s_selection(ops->vidioc_s_selection, file, fh, p);
++	}else{
++		ret = ops->vidioc_s_selection(file, fh, p);
++	}
++//	ret = ops->vidioc_s_selection(file, fh, p);
++// #endif // ENABLE_ISP
+ 	p->type = old_type;
+ 	return ret;
+ }
+@@ -2522,7 +2662,14 @@ static int v4l_log_status(const struct v4l2_ioctl_ops *ops,
+ 	if (vfd->v4l2_dev)
+ 		pr_info("%s: =================  START STATUS  =================\n",
+ 			vfd->v4l2_dev->name);
+-	ret = ops->vidioc_log_status(file, fh);
++// #ifndef ENABLE_ISP
++	if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++		ret = isp_ctrl_log_status(ops->vidioc_log_status, file, fh);
++	}else{
++		ret = ops->vidioc_log_status(file, fh);
++	}
++//	ret = ops->vidioc_log_status(file, fh);
++// #endif // ENABLE_ISP
+ 	if (vfd->v4l2_dev)
+ 		pr_info("%s: ==================  END STATUS  ==================\n",
+ 			vfd->v4l2_dev->name);
+@@ -2637,13 +2784,27 @@ static int v4l_dqevent(const struct v4l2_ioctl_ops *ops,
+ static int v4l_subscribe_event(const struct v4l2_ioctl_ops *ops,
+ 				struct file *file, void *fh, void *arg)
+ {
+-	return ops->vidioc_subscribe_event(fh, arg);
++// #ifndef ENABLE_ISP
++	if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++		return isp_ctrl_subscribe_event(ops->vidioc_subscribe_event, fh, arg);
++	}else{
++		return ops->vidioc_subscribe_event(fh, arg);
++	}
++//	return ops->vidioc_subscribe_event(fh, arg);
++// #endif // ENABLE_ISP
+ }
+ 
+ static int v4l_unsubscribe_event(const struct v4l2_ioctl_ops *ops,
+ 				struct file *file, void *fh, void *arg)
+ {
+-	return ops->vidioc_unsubscribe_event(fh, arg);
++// #ifndef ENABLE_ISP
++	if(ISP_CTRL_RUN==isp_ctrl_get_run_state()){
++		return isp_ctrl_unsubscribe_event(ops->vidioc_unsubscribe_event, fh, arg);
++	}else{
++		return ops->vidioc_unsubscribe_event(fh, arg);
++	}
++//	return ops->vidioc_unsubscribe_event(fh, arg);
++// #endif // ENABLE_ISP
+ }
+ 
+ static int v4l_g_sliced_vbi_cap(const struct v4l2_ioctl_ops *ops,
+@@ -2766,7 +2927,9 @@ struct v4l2_ioctl_info {
+ 
+ DEFINE_V4L_STUB_FUNC(g_fbuf)
+ DEFINE_V4L_STUB_FUNC(s_fbuf)
+-DEFINE_V4L_STUB_FUNC(expbuf)
++// #ifndef ENABLE_ISP
++//DEFINE_V4L_STUB_FUNC(expbuf)
++// #endif // ENABLE_ISP
+ DEFINE_V4L_STUB_FUNC(g_std)
+ DEFINE_V4L_STUB_FUNC(g_audio)
+ DEFINE_V4L_STUB_FUNC(s_audio)
+@@ -2802,7 +2965,11 @@ static const struct v4l2_ioctl_info v4l2_ioctls[] = {
+ 	IOCTL_INFO(VIDIOC_S_FBUF, v4l_stub_s_fbuf, v4l_print_framebuffer, INFO_FL_PRIO),
+ 	IOCTL_INFO(VIDIOC_OVERLAY, v4l_overlay, v4l_print_u32, INFO_FL_PRIO),
+ 	IOCTL_INFO(VIDIOC_QBUF, v4l_qbuf, v4l_print_buffer, INFO_FL_QUEUE),
+-	IOCTL_INFO(VIDIOC_EXPBUF, v4l_stub_expbuf, v4l_print_exportbuffer, INFO_FL_QUEUE | INFO_FL_CLEAR(v4l2_exportbuffer, flags)),
++// #ifndef ENABLE_ISP
++//	IOCTL_INFO(VIDIOC_EXPBUF, v4l_stub_expbuf, v4l_print_exportbuffer, INFO_FL_QUEUE | INFO_FL_CLEAR(v4l2_exportbuffer, flags)),
++// #else
++	IOCTL_INFO(VIDIOC_EXPBUF, v4l_expbuf, v4l_print_exportbuffer, INFO_FL_QUEUE | INFO_FL_CLEAR(v4l2_exportbuffer, flags)),
++// #endif // ENABLE_ISP
+ 	IOCTL_INFO(VIDIOC_DQBUF, v4l_dqbuf, v4l_print_buffer, INFO_FL_QUEUE),
+ 	IOCTL_INFO(VIDIOC_STREAMON, v4l_streamon, v4l_print_buftype, INFO_FL_PRIO | INFO_FL_QUEUE),
+ 	IOCTL_INFO(VIDIOC_STREAMOFF, v4l_streamoff, v4l_print_buftype, INFO_FL_PRIO | INFO_FL_QUEUE),
+diff --git b/include/uapi/linux/renesas-v4l2-controls.h b/include/uapi/linux/renesas-v4l2-controls.h
+new file mode 100644
+index 0000000..af6c38b
+--- /dev/null
++++ b/include/uapi/linux/renesas-v4l2-controls.h
+@@ -0,0 +1,96 @@
++/* SPDX-License-Identifier: ((GPL-2.0+ WITH Linux-syscall-note) OR BSD-3-Clause) */
++/*
++ *  Video for Linux Two controls header file
++ *
++ *  Copyright (C) 1999-2012 the contributors
++ *
++ *  This program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License as published by
++ *  the Free Software Foundation; either version 2 of the License, or
++ *  (at your option) any later version.
++ *
++ *  This program is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *  GNU General Public License for more details.
++ *
++ *  Alternatively you can redistribute this file under the terms of the
++ *  BSD license as stated below:
++ *
++ *  Redistribution and use in source and binary forms, with or without
++ *  modification, are permitted provided that the following conditions
++ *  are met:
++ *  1. Redistributions of source code must retain the above copyright
++ *     notice, this list of conditions and the following disclaimer.
++ *  2. Redistributions in binary form must reproduce the above copyright
++ *     notice, this list of conditions and the following disclaimer in
++ *     the documentation and/or other materials provided with the
++ *     distribution.
++ *  3. The names of its contributors may not be used to endorse or promote
++ *     products derived from this software without specific prior written
++ *     permission.
++ *
++ *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ *  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ *  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
++ *  A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
++ *  OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
++ *  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
++ *  TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ *  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++ *  LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++ *  NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
++ *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ *  The contents of this header was split off from videodev2.h. All control
++ *  definitions should be added to this header, which is included by
++ *  videodev2.h.
++ */
++
++#ifndef __LINUX_RENESAS_V4L2_CONTROLS_H
++#define __LINUX_RENESAS_V4L2_CONTROLS_H
++
++#include <linux/v4l2-controls.h>
++
++#define V4L2_CID_RZ_ISP_IN_FMT		(V4L2_CID_CAMERA_CLASS_BASE+34)
++enum v4l2_rz_isp_in_fmt_range {
++	V4L2_RZ_ISP_IN_FMT_RAW8 		= 0,
++	V4L2_RZ_ISP_IN_FMT_RAW10		= 1,
++	V4L2_RZ_ISP_IN_FMT_RAW12		= 2,
++};
++#define V4L2_CID_RZ_ISP_FRM_INTERVAL		(V4L2_CID_CAMERA_CLASS_BASE+35)
++#define V4L2_CID_RZ_ISP_BL			(V4L2_CID_CAMERA_CLASS_BASE+36)
++#define V4L2_CID_RZ_ISP_WB			(V4L2_CID_CAMERA_CLASS_BASE+37)
++enum v4l2_rz_isp_wb_range {
++	V4L2_RZ_ISP_WB_DAYLIGHT			= 0,
++	V4L2_RZ_ISP_WB_HORIZON			= 1,
++	V4L2_RZ_ISP_WB_WHITE			= 2,
++	V4L2_RZ_ISP_WB_STUDIO_LAMP		= 3,
++};
++#define V4L2_CID_RZ_ISP_GAMMA			(V4L2_CID_CAMERA_CLASS_BASE+38)
++#define V4L2_CID_RZ_ISP_CMX			(V4L2_CID_CAMERA_CLASS_BASE+39)
++enum v4l2_rz_isp_cmx_range {
++	V4L2_RZ_ISP_CMX_NONE			= 0,
++	V4L2_RZ_ISP_CMX_NORMAL			= 1,
++	V4L2_RZ_ISP_CMX_VIVID			= 2,
++	V4L2_RZ_ISP_CMX_SEPIA			= 3,
++};
++#define V4L2_CID_RZ_ISP_2DNR			(V4L2_CID_CAMERA_CLASS_BASE+40)
++#define V4L2_CID_RZ_ISP_3DNR			(V4L2_CID_CAMERA_CLASS_BASE+41)
++#define V4L2_CID_RZ_ISP_EMP			(V4L2_CID_CAMERA_CLASS_BASE+42)
++enum v4l2_rz_isp_emp_range {
++	V4L2_RZ_ISP_EMP_NONE			= 0,
++	V4L2_RZ_ISP_EMP_WEAK			= 1,
++	V4L2_RZ_ISP_EMP_NORMAL			= 2,
++	V4L2_RZ_ISP_EMP_STRONG			= 3,
++};
++#define V4L2_CID_RZ_ISP_DRP_LV		(V4L2_CID_CAMERA_CLASS_BASE+43)
++#define V4L2_CID_RZ_ISP_AE			(V4L2_CID_CAMERA_CLASS_BASE+44)
++#define V4L2_CID_RZ_ISP_EXPOSE_LV	(V4L2_CID_CAMERA_CLASS_BASE+45)
++#define V4L2_CID_RZ_ISP_T_BL		(V4L2_CID_CAMERA_CLASS_BASE+46)
++#define V4L2_CID_RZ_ISP_THRESHOLD	(V4L2_CID_CAMERA_CLASS_BASE+47)
++#define V4L2_CID_RZ_ISP_ALL			(V4L2_CID_CAMERA_CLASS_BASE+48)
++#define V4L2_CID_RZ_ISP_DETAIL		V4L2_CID_RZ_ISP_ALL
++#define V4L2_RZ_ISP_ALL_DIMS		(512)
++#define V4L2_CID_RZ_ISP_AWB			(V4L2_CID_CAMERA_CLASS_BASE+49)
++#endif

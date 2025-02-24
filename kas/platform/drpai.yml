@@ -4,12 +4,16 @@ local_conf_header:
   drpai: |
       IMAGE_INSTALL:append = "\
         kernel-module-udmabuf \
+        drpai \ 
+        isp \ 
+        kernel-devsrc \ 
       "
-      TOOLCHAIN_TARGET_TASK:append = " drpai "
+      TOOLCHAIN_TARGET_TASK:append = " drpai isp "
 repos:
   rz-community-bsp:
     layers:
       meta-rz-drpai:
+      meta-rz-simple-isp:
 
 
 #IMAGE_INSTALL:append = "\
