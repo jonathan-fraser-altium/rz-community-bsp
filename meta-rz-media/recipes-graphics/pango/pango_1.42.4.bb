@@ -15,7 +15,7 @@ GNOMEBASEBUILDCLASS = "meson"
 
 inherit gnomebase ptest-gnome upstream-version-is-even gobject-introspection
 
-SRC_URI += "file://run-ptest \
+SRC_URI:append = "file://run-ptest \
             file://insensitive-diff.patch \
             file://CVE-2019-1010238.patch \
             "
@@ -40,7 +40,7 @@ RPROVIDES_${PN} += "pango-modules pango-module-indic-lang \
 
 BBCLASSEXTEND = "native nativesdk"
 
-do_install_append () {
+do_install:append () {
 	if [ "${PTEST_ENABLED}" != "1" ]; then
 		rm -rf ${D}${libexecdir}/installed-tests ${D}${datadir}/installed-tests
                 rmdir --ignore-fail-on-non-empty ${D}${libexecdir} ${D}${datadir}
