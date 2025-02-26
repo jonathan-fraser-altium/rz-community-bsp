@@ -7,6 +7,14 @@ local_conf_header:
         drpai \ 
         isp \ 
         kernel-devsrc \ 
+        kernel-dev \ 
+        kernel-modules \ 
+      "
+      IMAGE_INSTALL:append = " \
+        packagegroup-gstreamer1.0-plugins \
+        packagegroup-wayland-community \
+        packagegroup-multimedia-libs \
+        packagegroup-multimedia-kernel-modules \
       "
       TOOLCHAIN_TARGET_TASK:append = " drpai isp "
 repos:
