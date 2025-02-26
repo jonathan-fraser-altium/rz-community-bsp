@@ -11,10 +11,13 @@ local_conf_header:
         kernel-modules \ 
       "
       IMAGE_INSTALL:append = " \
-        packagegroup-gstreamer1.0-plugins \
-        packagegroup-wayland-community \
-        packagegroup-multimedia-libs \
-        packagegroup-multimedia-kernel-modules \
+        wayland \
+        weston \
+        weston-examples \
+        alsa-utils \
+        alsa-tools \
+        libdrm-tests \
+        libdrm-kms \
       "
       TOOLCHAIN_TARGET_TASK:append = " drpai isp "
 repos:
@@ -22,6 +25,7 @@ repos:
     layers:
       meta-rz-drpai:
       meta-rz-simple-isp:
+      meta-rz-media: 
 
 
 #IMAGE_INSTALL:append = "\
