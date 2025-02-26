@@ -10,22 +10,12 @@ local_conf_header:
         kernel-dev \ 
         kernel-modules \ 
       "
-      IMAGE_INSTALL:append = " \
-        wayland \
-        weston \
-        weston-examples \
-        alsa-utils \
-        alsa-tools \
-        libdrm-tests \
-        libdrm-kms \
-      "
       TOOLCHAIN_TARGET_TASK:append = " drpai isp "
 repos:
   rz-community-bsp:
     layers:
       meta-rz-drpai:
       meta-rz-simple-isp:
-      meta-rz-media: 
 
 
 #IMAGE_INSTALL:append = "\
