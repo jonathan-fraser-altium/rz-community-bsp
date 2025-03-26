@@ -240,6 +240,20 @@ choice
 endchoice
 endmenu
 
+menu "Features"
+	config FEAT_DOCKER
+	bool "Docker support"
+	default n
+	help
+		Enable Docker support in the image.
+
+	config KAS_INCLUDE_FEAT_DOCKER
+	string
+	depends on FEAT_DOCKER
+	default "kas/feat/docker.yml"
+
+endmenu
+
 menu "Bootloaders"
 	menu "U-Boot"
 	choice
